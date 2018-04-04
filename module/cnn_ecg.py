@@ -51,7 +51,7 @@ def create_DS(ds_num, v_pre, v_post):
         mixNList = tuple(zip(begNList,endNList)) 
         
         
-        print(mixNList)
+        #print(mixNList)
         #TODO
         for x in range(0,7):
             dfseg[patient_num] = dfall[patient_num][(dfall[patient_num]['sample'] >= mixNList[x][0]) & (dfall[patient_num]['sample'] <= mixNList[x][1])]
