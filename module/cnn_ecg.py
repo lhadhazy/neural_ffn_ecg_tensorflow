@@ -17,7 +17,8 @@ def create_DS(ds_num):
          ds_list = ds1_files;
     else:
         ds_list = ds2_files;
-        
+    
+    #load the necessary patient inputs    
     for patient_num in ds_list:
         dfall[patient_num] = pd.read_csv('data/DS'+ds_num+'/'+patient_num+'_ALL_samples.csv', sep=',', header=0, squeeze=False)
         dfann[patient_num] = pd.read_csv('data/DS'+ds_num+'/'+patient_num+'_ALL_ANN.csv', sep=',', header=0, parse_dates=[0], squeeze=False)
