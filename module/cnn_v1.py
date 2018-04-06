@@ -4,22 +4,20 @@ from __future__ import print_function
 
 import os, sys
 # sys.path.append("..")
-import pywt
-import pywt.data
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-from scipy import signal
 import tensorflow as tf
+from mesonbuild.mlog import initialize
+from tensorflow.python.ops.variables import initialize_all_variables
+
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
-
 def create_DS(ds_num, v_pre, v_post):
-    # ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230']
-    ds1_files = ['101']
-    # ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234']
-    ds2_files = ['100']
+    #ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230','107','217']
+    ds1_files = ['101','106','108','109']
+    #ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234','102','104']
+    ds2_files = ['100','103','105','111']
     freq = 360
     preX = v_pre
     postX = v_post
@@ -35,8 +33,8 @@ def create_DS(ds_num, v_pre, v_post):
     
     # Load the necessary patient inputs    
     for patient_num in ds_list:
-        dfall[patient_num] = pd.read_csv('data/DS' + ds_num + '/' + patient_num + '_ALL_samples.csv', sep=',', header=0, squeeze=False)
-        dfann[patient_num] = pd.read_csv('data/DS' + ds_num + '/' + patient_num + '_ALL_ANN.csv', sep=',', header=0, parse_dates=[0], squeeze=False)
+        dfall[patient_num] = pd.read_csv('../data/DS' + ds_num + '/' + patient_num + '_ALL_samples.csv', sep=',', header=0, squeeze=False)
+        dfann[patient_num] = pd.read_csv('../data/DS' + ds_num + '/' + patient_num + '_ALL_ANN.csv', sep=',', header=0, parse_dates=[0], squeeze=False)
    
     # Standardize the beat annotations 
     # vals_to_replace = {'N':'N','L':'N','e':'N','j':'N','R':'N','A':'SVEB','a':'SVEB','J':'SVEB','S':'SVEB','V':'VEB','E':'VEB','F':'F','Q':'Q','P':'Q','f':'Q','U':'Q'}
@@ -73,8 +71,9 @@ def create_DS(ds_num, v_pre, v_post):
             segment_labels.append(training_labels)    
             
     segment_data = np.asarray(segment_data)
-
+   
     return dfall, dfann, segment_data, segment_labels
+
 
 
 def cnn_model_fn(features, labels, mode):
@@ -82,10 +81,20 @@ def cnn_model_fn(features, labels, mode):
     # Input Layer
     # Reshape X to 4-D tensor: [batch_size, width, height, channels]
     # MNIST images are 28x28 pixels, and have one color channel
+    
+    segment_data = tf.placeholder('float32', [None, 80])
+    train_data = tf.placeholder('float32', [None, 80])
+    eval_data = tf.placeholder('float32', [None, 80])
+    x = tf.placeholder('float32', [None, 80])
+    input_layer = tf.placeholder('float32', [None, 80])
+    
+    segment_labels = tf.placeholder('int32')
+    train_labels = tf.placeholder('int32')
+    eval_labels = tf.placeholder('int32')
+    y = tf.placeholder('int32')
+
     input_layer = tf.reshape(features["x"], [-1, 1, 80, 1])
     
-    #print("input_layer: ")
-    #print(input_layer.shape)
 
     # Convolutional Layer #1
     # Computes 32 features using a 5x5 filter with ReLU activation.
@@ -96,12 +105,13 @@ def cnn_model_fn(features, labels, mode):
         inputs=input_layer,
         filters=5,
         kernel_size=[1, 3],
-        # padding="same",
-        activation=tf.nn.relu)
+        #kernel_initializer=,
+        padding='valid',
+        activation=tf.nn.leaky_relu)
 
     #print("conv1: ")
     #print(conv1.shape)
-    
+ 
     # Pooling Layer #1
     # First max pooling layer with a 2x2 filter and stride of 2
     # Input Tensor Shape: [batch_size, 1, 78, 5]
@@ -120,8 +130,9 @@ def cnn_model_fn(features, labels, mode):
         inputs=pool1,
         filters=10,
         kernel_size=[1, 4],
+        #kernel_initializer="c2",
         # padding="same",
-        activation=tf.nn.relu)
+        activation=tf.nn.leaky_relu)
 
     #print("conv2: ")
     #print(conv2.shape)
@@ -145,7 +156,7 @@ def cnn_model_fn(features, labels, mode):
     # Densely connected layer with 1024 neurons
     # Input Tensor Shape: [batch_size, 7 * 7 * 64]
     # Output Tensor Shape: [batch_size, 1024]
-    dense = tf.layers.dense(inputs=pool2_flat, units=18, activation=tf.nn.relu)
+    dense = tf.layers.dense(inputs=pool2_flat, units=18, activation=tf.nn.leaky_relu)
 
     #print("dense: ")
     #print(dense.shape)
@@ -181,16 +192,87 @@ def cnn_model_fn(features, labels, mode):
 
     # Configure the Training Op (for TRAIN mode)
     if mode == tf.estimator.ModeKeys.TRAIN:
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001)
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.003)
         train_op = optimizer.minimize(
             loss=loss,
             global_step=tf.train.get_global_step())
         return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
 
-  # Add evaluation metrics (for EVAL mode)
+
+    con = tf.confusion_matrix(labels=labels, predictions=predictions["classes"])
+    #sess = tf.Session()
+    #with sess.as_default():
+
+    # Add evaluation metrics (for EVAL mode)
     eval_metric_ops = {
         "accuracy": tf.metrics.accuracy(
-            labels=labels, predictions=predictions["classes"])}
+            labels=labels, predictions=predictions["classes"])
+        }
     return tf.estimator.EstimatorSpec(
         mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
 
+    
+  
+
+def main(unused_argv):
+    
+    segment_data = tf.placeholder('float32', [None, 80])
+    train_data = tf.placeholder('float32', [None, 80])
+    eval_data = tf.placeholder('float32', [None, 80])
+    x = tf.placeholder('float32', [None, 80])
+    input_layer = tf.placeholder('float32', [None, 80])
+    
+    segment_labels = tf.placeholder('int32')
+    train_labels = tf.placeholder('int32')
+    eval_labels = tf.placeholder('int32')
+    y = tf.placeholder('int32')
+
+    preX = 19
+    postX = 20
+    ds1_all, ds1_ann, ds1_seg, ds1_lab = create_DS("1",preX,postX)
+    ds2_all, ds2_ann, ds2_seg, ds2_lab = create_DS("2",preX,postX)
+    
+    train_data = ds1_seg
+    train_labels = np.asarray(ds1_lab, dtype=np.int32)
+    eval_data = ds2_seg
+    eval_labels = np.array(ds2_lab, dtype=np.int32)
+
+    #print(np.unique(train_labels, return_counts=True))
+    #print(np.unique(eval_labels, return_counts=True))
+
+     # Create the Estimator
+    ecg_classifier = tf.estimator.Estimator(model_fn=cnn_model_fn, model_dir="/tmp/ecg_convnet_model")
+    
+    # Set up logging for predictions
+    # Log the values in the "Softmax" tensor with label "probabilities"
+    tensors_to_log = {"probabilities": "softmax_tensor"}
+    logging_hook = tf.train.LoggingTensorHook(tensors=tensors_to_log, every_n_iter=50)
+    
+    # Train the model
+    train_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x={"x": train_data},
+        y=train_labels,
+        batch_size=10,
+        num_epochs=None,
+        shuffle=True)
+    ecg_classifier.train(
+        input_fn=train_input_fn,
+        steps=2000,
+        hooks=[logging_hook])
+    
+    # Evaluate the model and print results
+    eval_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x={"x": eval_data},
+        y=eval_labels,
+        num_epochs=30,
+        shuffle=False)
+    eval_results = ecg_classifier.evaluate(input_fn=eval_input_fn)
+    print(eval_results)
+ 
+
+    
+if __name__ == "__main__":
+    with tf.Session() as sess:
+        tf.global_variables_initializer()
+        tf.app.run()
+    
