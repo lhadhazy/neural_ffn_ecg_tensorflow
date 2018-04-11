@@ -14,10 +14,10 @@ from tensorflow.python.ops.variables import initialize_all_variables
 tf.logging.set_verbosity(tf.logging.INFO)
 
 def create_DS(ds_num, v_pre, v_post):
-    #ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230','107','217']
-    ds1_files = ['101','106','108','109']
-    #ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234','102','104']
-    ds2_files = ['100','103','105','111']
+    ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230','107','217']
+    #ds1_files = ['101','106','108','109']
+    ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234','102','104']
+    #ds2_files = ['100','103','105','111']
     freq = 360
     preX = v_pre
     postX = v_post
@@ -161,9 +161,9 @@ def cnn_model_fn(features, labels, mode):
     #print("dense: ")
     #print(dense.shape)
     
-    # Add dropout operation; 0.6 probability that element will be kept
+    # Add dropout operation; 0.7 probability that element will be kept
     dropout = tf.layers.dropout(
-        inputs=dense, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
+        inputs=dense, rate=0.3, training=mode == tf.estimator.ModeKeys.TRAIN)
 
     #print("dropout: ")
     #print(dropout.shape)
@@ -199,7 +199,7 @@ def cnn_model_fn(features, labels, mode):
         return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
 
 
-    con = tf.confusion_matrix(labels=labels, predictions=predictions["classes"])
+    #con = tf.confusion_matrix(labels=labels, predictions=predictions["classes"])
     #sess = tf.Session()
     #with sess.as_default():
 
@@ -215,7 +215,7 @@ def cnn_model_fn(features, labels, mode):
   
 
 def main(unused_argv):
-    
+    """
     segment_data = tf.placeholder('float32', [None, 80])
     train_data = tf.placeholder('float32', [None, 80])
     eval_data = tf.placeholder('float32', [None, 80])
@@ -226,7 +226,7 @@ def main(unused_argv):
     train_labels = tf.placeholder('int32')
     eval_labels = tf.placeholder('int32')
     y = tf.placeholder('int32')
-
+    """
     preX = 19
     postX = 20
     ds1_all, ds1_ann, ds1_seg, ds1_lab = create_DS("1",preX,postX)
@@ -264,7 +264,7 @@ def main(unused_argv):
     eval_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={"x": eval_data},
         y=eval_labels,
-        num_epochs=30,
+        num_epochs=20,
         shuffle=False)
     eval_results = ecg_classifier.evaluate(input_fn=eval_input_fn)
     print(eval_results)
