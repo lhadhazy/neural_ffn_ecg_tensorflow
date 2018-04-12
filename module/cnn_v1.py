@@ -16,10 +16,10 @@ from tensorflow.python.ops.variables import initialize_all_variables
 tf.logging.set_verbosity(tf.logging.INFO)
 
 def create_DS(ds_num, v_pre, v_post, cleanse=False):
-    #ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230','107','217']
-    ds1_files = ['101','106']
-    #ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234','102','104']
-    ds2_files = ['100','103']
+    ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230','107','217']
+    #ds1_files = ['101','106']
+    ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234','102','104']
+    #ds2_files = ['100','103']
     freq = 360
     preX = v_pre
     postX = v_post
@@ -68,6 +68,7 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
     
     for patient_num in ds_list:
         annList = [];
+        rriList = [];
         begNList = [];
         endNList = [];
         mixNList = [];
@@ -79,8 +80,9 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
             begNList.append(Nbegin);
             endNList.append(Nend);
             annList.append(row['Type'])
+            rriList.append(row['RRI'])
 
-        mixNList = tuple(zip(begNList, endNList, annList)) 
+        mixNList = tuple(zip(begNList, endNList, annList, rriList)) 
         
         for row in mixNList:
             dfseg = dfall[patient_num][(dfall[patient_num]['sample'] >= row[0]) & (dfall[patient_num]['sample'] <= row[1])]
@@ -93,8 +95,10 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
                 dfseg2_baseline_values = peakutils.baseline(dfseg2_fir)
                 dfseg1 = dfseg1_fir-dfseg1_baseline_values
                 dfseg2 = dfseg2_fir-dfseg2_baseline_values
-            training_inputs1 = np.asarray(dfseg1.flatten(), dtype=np.float32)
-            training_inputs2 = np.asarray(dfseg2.flatten(), dtype=np.float32)
+            training_inputs1 = np.asarray(dfseg1.values.flatten(), dtype=np.float32)
+            training_inputs2 = np.asarray(dfseg2.values.flatten(), dtype=np.float32)
+            training_inputs1 = np.concatenate((training_inputs1, np.asarray([row[3]], dtype=np.float32)))
+            training_inputs2 = np.concatenate((training_inputs2, np.asarray([row[3]], dtype=np.float32)))
             segment_data.append(np.concatenate((training_inputs1, training_inputs2), axis=0))
             training_labels = row[2]
             segment_labels.append(training_labels)    
@@ -107,9 +111,7 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
 
 def cnn_model_fn(features, labels, mode):
     """Model function for CNN."""
-    # Input Layer
-    # Reshape X to 4-D tensor: [batch_size, width, height, channels]
-    # MNIST images are 28x28 pixels, and have one color channel
+
     
     segment_data = tf.placeholder('float32', [None, 80])
     train_data = tf.placeholder('float32', [None, 80])
@@ -241,6 +243,119 @@ def cnn_model_fn(features, labels, mode):
         mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
 
     
+def cnn_model_fn_rri(features, labels, mode):
+    """Model function for CNN."""
+    # Input Layer
+
+    
+    segment_data = tf.placeholder('float32', [None, 82])
+    train_data = tf.placeholder('float32', [None, 82])
+    eval_data = tf.placeholder('float32', [None, 82])
+    x = tf.placeholder('float32', [None, 82])
+    input_layer = tf.placeholder('float32', [None, 82])
+    
+    segment_labels = tf.placeholder('int32')
+    train_labels = tf.placeholder('int32')
+    eval_labels = tf.placeholder('int32')
+    y = tf.placeholder('int32')
+
+    input_layer = tf.reshape(features["x"], [-1, 1, 82, 1])
+    
+
+    # Convolutional Layer #1
+    # Computes 32 features using a 5x5 filter with ReLU activation.
+    # Padding is added to preserve width and height.
+    # Input Tensor Shape: [batch_size, 1, 82, 1]
+    # Output Tensor Shape: [batch_size, 1, 78, 5]
+    conv1 = tf.layers.conv2d(
+        inputs=input_layer,
+        filters=5,
+        kernel_size=[1, 5],
+        #kernel_initializer=,
+        padding='valid',
+        activation=tf.nn.leaky_relu)
+
+    # Pooling Layer #1
+    # First max pooling layer with a 2x2 filter and stride of 2
+    # Input Tensor Shape: [batch_size, 1, 78, 5]
+    # Output Tensor Shape: [batch_size, 1, 39, 5]
+    pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[1, 2], strides=2)
+
+    
+    # Convolutional Layer #2
+    # Computes 64 features using a 5x5 filter.
+    # Padding is added to preserve width and height.
+    # Input Tensor Shape: [batch_size, 1, 39, 5]
+    # Output Tensor Shape: [batch_size, 1, 36, 10]
+    conv2 = tf.layers.conv2d(
+        inputs=pool1,
+        filters=10,
+        kernel_size=[1, 4],
+        #kernel_initializer="c2",
+        # padding="same",
+        activation=tf.nn.leaky_relu)
+
+
+    # Pooling Layer #2
+    # Second max pooling layer with a 2x2 filter and stride of 2
+    # Input Tensor Shape: [batch_size, 1, 36, 10]
+    # Output Tensor Shape: [batch_size, 1, 18, 10]
+
+    pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[1, 2], strides=2)
+
+
+    # Flatten tensor into a batch of vectors
+    # Input Tensor Shape: [batch_size, 1, 8, 10]
+    # Output Tensor Shape: [batch_size, 1, 8, 10]
+    pool2_flat = tf.reshape(pool2, [-1, 1 * 18 * 10])
+
+    # Dense Layer
+    # Densely connected layer with 1024 neurons
+    # Input Tensor Shape: [batch_size, 7 * 7 * 64]
+    # Output Tensor Shape: [batch_size, 1024]
+    dense = tf.layers.dense(inputs=pool2_flat, units=18, activation=tf.nn.leaky_relu)
+
+    
+    # Add dropout operation; 0.7 probability that element will be kept
+    dropout = tf.layers.dropout(
+        inputs=dense, rate=0.3, training=mode == tf.estimator.ModeKeys.TRAIN)
+
+    
+    # Logits layer
+    # Input Tensor Shape: [batch_size, 1024]
+    # Output Tensor Shape: [batch_size, 10]
+    logits = tf.layers.dense(inputs=dropout, units=5)
+
+
+    predictions = {
+        # Generate predictions (for PREDICT and EVAL mode)
+        "classes": tf.argmax(input=logits, axis=1),
+        # Add `softmax_tensor` to the graph. It is used for PREDICT and by the
+        # `logging_hook`.
+        "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
+        }
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
+
+    # Calculate Loss (for both TRAIN and EVAL modes)
+    loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
+
+    # Configure the Training Op (for TRAIN mode)
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.003)
+        train_op = optimizer.minimize(
+            loss=loss,
+            global_step=tf.train.get_global_step())
+        return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
+
+
+    # Add evaluation metrics (for EVAL mode)
+    eval_metric_ops = {
+        "accuracy": tf.metrics.accuracy(
+            labels=labels, predictions=predictions["classes"])
+        }
+    return tf.estimator.EstimatorSpec(
+        mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
   
 
 def main(unused_argv):
@@ -270,7 +385,7 @@ def main(unused_argv):
     #print(np.unique(eval_labels, return_counts=True))
 
      # Create the Estimator
-    ecg_classifier = tf.estimator.Estimator(model_fn=cnn_model_fn, model_dir="/tmp/ecg_convnet_model")
+    ecg_classifier = tf.estimator.Estimator(model_fn=cnn_model_fn_rri, model_dir="/tmp/ecg_convnet_model_rri")
     
     # Set up logging for predictions
     # Log the values in the "Softmax" tensor with label "probabilities"
@@ -286,7 +401,7 @@ def main(unused_argv):
         shuffle=True)
     ecg_classifier.train(
         input_fn=train_input_fn,
-        steps=2000,
+        steps=20000,
         hooks=[logging_hook])
     
     # Evaluate the model and print results

@@ -67,6 +67,7 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
     
     for patient_num in ds_list:
         annList = [];
+        rriList = [];
         begNList = [];
         endNList = [];
         mixNList = [];
@@ -78,8 +79,9 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
             begNList.append(Nbegin);
             endNList.append(Nend);
             annList.append(row['Type'])
+            rriList.append(row['RRI'])
 
-        mixNList = tuple(zip(begNList, endNList, annList)) 
+        mixNList = tuple(zip(begNList, endNList, annList, rriList)) 
         
         for row in mixNList:
             dfseg = dfall[patient_num][(dfall[patient_num]['sample'] >= row[0]) & (dfall[patient_num]['sample'] <= row[1])]
@@ -94,6 +96,8 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
                 dfseg2 = dfseg2_fir-dfseg2_baseline_values
             training_inputs1 = np.asarray(dfseg1.flatten(), dtype=np.float32)
             training_inputs2 = np.asarray(dfseg2.flatten(), dtype=np.float32)
+            training_inputs1 = np.concatenate((training_inputs1, np.asarray([row[3]], dtype=np.float32)))
+            training_inputs2 = np.concatenate((training_inputs2, np.asarray([row[3]], dtype=np.float32)))
             segment_data.append(np.concatenate((training_inputs1, training_inputs2), axis=0))
             training_labels = row[2]
             segment_labels.append(training_labels)    
@@ -256,7 +260,158 @@ def cnn_model_fn2(features, labels, mode):
     return tf.estimator.EstimatorSpec(
         mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
   
+def cnn_model_fn2_rri(features, labels, mode):
+    """Model function for CNN."""
+    # Input Layer
 
+    segment_data = tf.placeholder('float32', [None, 482])
+    train_data = tf.placeholder('float32', [None, 482])
+    eval_data = tf.placeholder('float32', [None, 482])
+    x = tf.placeholder('float32', [None, 482])
+    input_layer = tf.placeholder('float32', [None, 482])
+    
+    segment_labels = tf.placeholder('int32')
+    train_labels = tf.placeholder('int32')
+    eval_labels = tf.placeholder('int32')
+    y = tf.placeholder('int32')
+
+    input_layer = tf.reshape(features["x"], [-1, 1, 482, 1])
+
+    # Convolutional Layer #1
+    # Computes 32 features using a 5x5 filter with ReLU activation.
+    # Padding is added to preserve width and height.
+    # Input Tensor Shape: [batch_size, 1, 482, 1]
+    # Output Tensor Shape: [batch_size, 1, 478, 5]
+    conv1 = tf.layers.conv2d(
+        inputs=input_layer,
+        filters=5,
+        kernel_size=[1, 5],
+        # kernel_initializer=,
+        padding='valid',
+        activation=tf.nn.leaky_relu)
+
+    # print("conv1: ")
+    # print(conv1.shape)
+ 
+    # Pooling Layer #1
+    # First max pooling layer with a 2x2 filter and stride of 2
+    # Input Tensor Shape: [batch_size, 1, 478, 5]
+    # Output Tensor Shape: [batch_size, 1, 239, 5]
+    pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[1, 2], strides=2)
+
+    # print("pool1: ")
+    # print(pool1.shape)
+    
+    # Convolutional Layer #2
+    # Computes 64 features using a 5x5 filter.
+    # Padding is added to preserve width and height.
+    # Input Tensor Shape: [batch_size, 1, 239, 5]
+    # Output Tensor Shape: [batch_size, 1, 236, 10]
+    conv2 = tf.layers.conv2d(
+        inputs=pool1,
+        filters=10,
+        kernel_size=[1, 4],
+        # kernel_initializer="c2",
+        # padding="same",
+        activation=tf.nn.leaky_relu)
+
+    # print("conv2: ")
+    # print(conv2.shape)
+    # Pooling Layer #2
+    # Second max pooling layer with a 2x2 filter and stride of 2
+    # Input Tensor Shape: [batch_size, 1, 236, 10]
+    # Output Tensor Shape: [batch_size, 1, 118, 10]
+
+    pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[1, 2], strides=2)
+
+  # Convolutional Layer #3
+    # Computes 32 features using a 5x5 filter with ReLU activation.
+    # Padding is added to preserve width and height.
+    # Input Tensor Shape: [batch_size, 1, 118, 10]
+    # Output Tensor Shape: [batch_size, 1, 116, 20]
+    conv3 = tf.layers.conv2d(
+        inputs=pool2,
+        filters=20,
+        kernel_size=[1, 3],
+        # kernel_initializer=,
+        padding='valid',
+        activation=tf.nn.leaky_relu)
+
+    # print("conv1: ")
+    # print(conv1.shape)
+ 
+    # Pooling Layer #1
+    # First max pooling layer with a 2x2 filter and stride of 2
+    # Input Tensor Shape: [batch_size, 1, 116, 20]
+    # Output Tensor Shape: [batch_size, 1, 58, 20]
+    pool3 = tf.layers.max_pooling2d(inputs=conv3, pool_size=[1, 2], strides=2)
+    
+    # print("pool2: ")
+    # print(pool2.shape)
+    # Flatten tensor into a batch of vectors
+    # Input Tensor Shape: [batch_size, 1, 58, 20]
+    # Output Tensor Shape: [batch_size, 1, 58, 20]
+    pool3_flat = tf.reshape(pool3, [-1, 1 * 58 * 20])
+
+    # print("pool2_flat: ")
+    # print(pool2_flat.shape)
+    # Dense Layer
+    # Densely connected layer with 1024 neurons
+    # Input Tensor Shape: [batch_size, 7 * 7 * 64]
+    # Output Tensor Shape: [batch_size, 1024]
+    dense1 = tf.layers.dense(inputs=pool3_flat, units=30, activation=tf.nn.leaky_relu)
+
+    # print("dense: ")
+    # print(dense.shape)
+    dense2 = tf.layers.dense(inputs=dense1, units=20, activation=tf.nn.leaky_relu)
+    
+    # Add dropout operation; 0.7 probability that element will be kept
+    dropout = tf.layers.dropout(
+        inputs=dense2, rate=0.3, training=mode == tf.estimator.ModeKeys.TRAIN)
+
+    # print("dropout: ")
+    # print(dropout.shape)
+    
+    # Logits layer
+    # Input Tensor Shape: [batch_size, 1024]
+    # Output Tensor Shape: [batch_size, 10]
+    logits = tf.layers.dense(inputs=dropout, units=5)
+    
+    # print("logits: ")
+    # print(logits.shape)
+
+    predictions = {
+        # Generate predictions (for PREDICT and EVAL mode)
+        "classes": tf.argmax(input=logits, axis=1),
+        # Add `softmax_tensor` to the graph. It is used for PREDICT and by the
+        # `logging_hook`.
+        "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
+        }
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
+
+    # Calculate Loss (for both TRAIN and EVAL modes)
+    loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
+
+    # Configure the Training Op (for TRAIN mode)
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.003)
+        train_op = optimizer.minimize(
+            loss=loss,
+            global_step=tf.train.get_global_step())
+        return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
+
+    #con = tf.confusion_matrix(labels=labels, predictions=predictions["classes"])
+
+    # Add evaluation metrics (for EVAL mode)
+    eval_metric_ops = {
+        "accuracy": tf.metrics.accuracy(
+            labels=labels, predictions=predictions["classes"])
+        }
+    return tf.estimator.EstimatorSpec(
+        mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
+  
+  
 def main(unused_argv):
     """
     segment_data = tf.placeholder('float32', [None, 80])
@@ -272,8 +427,8 @@ def main(unused_argv):
     """
     preX = 89
     postX = 150
-    ds1_all, ds1_ann, ds1_seg, ds1_lab = create_DS("1",preX,postX,cleanse=False)
-    ds2_all, ds2_ann, ds2_seg, ds2_lab = create_DS("2",preX,postX,cleanse=False)
+    ds1_all, ds1_ann, ds1_seg, ds1_lab = create_DS("1",preX,postX,cleanse=True)
+    ds2_all, ds2_ann, ds2_seg, ds2_lab = create_DS("2",preX,postX,cleanse=True)
     
     train_data = ds1_seg
     train_labels = np.asarray(ds1_lab, dtype=np.int32)
@@ -284,7 +439,7 @@ def main(unused_argv):
     # print(np.unique(eval_labels, return_counts=True))
 
      # Create the Estimator
-    ecg_classifier = tf.estimator.Estimator(model_fn=cnn_model_fn2, model_dir="/tmp/ecg_convnet_model2")
+    ecg_classifier = tf.estimator.Estimator(model_fn=cnn_model_fn2_rri, model_dir="/tmp/ecg_convnet_model2_rri")
     
     # Set up logging for predictions
     # Log the values in the "Softmax" tensor with label "probabilities"
@@ -300,7 +455,7 @@ def main(unused_argv):
         shuffle=True)
     ecg_classifier.train(
         input_fn=train_input_fn,
-        steps=2000,
+        steps=20000,
         hooks=[logging_hook])
     
     # Evaluate the model and print results
