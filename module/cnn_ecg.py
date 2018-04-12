@@ -15,11 +15,11 @@ import tensorflow as tf
 tf.logging.set_verbosity(tf.logging.INFO)
 
 
-def create_DS(ds_num, v_pre, v_post):
-    ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230','107','217']
-    #ds1_files = ['101','106','108','109']
-    ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234','102','104']
-    #ds2_files = ['100','103','105','111']
+def create_DS(ds_num, v_pre, v_post, cleanse=False):
+    #ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230','107','217']
+    ds1_files = ['101','106']
+    #ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234','102','104']
+    ds2_files = ['100','103']
     freq = 360
     preX = v_pre
     postX = v_post
@@ -38,6 +38,17 @@ def create_DS(ds_num, v_pre, v_post):
         dfall[patient_num] = pd.read_csv('data/DS' + ds_num + '/' + patient_num + '_ALL_samples.csv', sep=',', header=0, squeeze=False)
         dfann[patient_num] = pd.read_csv('data/DS' + ds_num + '/' + patient_num + '_ALL_ANN.csv', sep=',', header=0, parse_dates=[0], squeeze=False)
    
+    # Butterworth filter: x -> y
+    lowcut=0.01
+    highcut=15.0
+    signal_freq=360
+    filter_order=1
+    nyquist_freq = 0.5*signal_freq
+    low=lowcut/nyquist_freq
+    high=highcut/nyquist_freq
+    b, a = signal.butter(filter_order, [low,high], btype="band")
+   
+
     # Standardize the beat annotations 
     # vals_to_replace = {'N':'N','L':'N','e':'N','j':'N','R':'N','A':'SVEB','a':'SVEB','J':'SVEB','S':'SVEB','V':'VEB','E':'VEB','F':'F','Q':'Q','P':'Q','f':'Q','U':'Q'}
     # use integers 0..4 instead of annotation...
@@ -66,6 +77,9 @@ def create_DS(ds_num, v_pre, v_post):
         
         for row in mixNList:
             dfseg = dfall[patient_num][(dfall[patient_num]['sample'] >= row[0]) & (dfall[patient_num]['sample'] <= row[1])]
+            if (cleanse == True):
+                dfseg1 = signal.lfilter(b, a, dfseg[dfseg.columns[1:2]])
+                dfseg2 = signal.lfilter(b, a, dfseg[dfseg.columns[2:3]])
             training_inputs1 = np.asarray(dfseg[dfseg.columns[1:2]].values.flatten(), dtype=np.float32)
             training_inputs2 = np.asarray(dfseg[dfseg.columns[2:3]].values.flatten(), dtype=np.float32)
             segment_data.append(np.concatenate((training_inputs1, training_inputs2), axis=0))

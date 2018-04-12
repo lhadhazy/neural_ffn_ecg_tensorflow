@@ -6,6 +6,8 @@ import os, sys
 # sys.path.append("..")
 import numpy as np
 import pandas as pd
+from scipy import signal
+import peakutils
 import tensorflow as tf
 from mesonbuild.mlog import initialize
 from tensorflow.python.ops.variables import initialize_all_variables
@@ -13,17 +15,23 @@ from tensorflow.python.ops.variables import initialize_all_variables
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
-def create_DS(ds_num, v_pre, v_post):
-    ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230','107','217']
-    #ds1_files = ['101','106','108','109']
-    ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234','102','104']
-    #ds2_files = ['100','103','105','111']
+def create_DS(ds_num, v_pre, v_post, cleanse=False):
+    #ds1_files = ['101','106','108','109','112','114','115','116','118','119','122','124','201','203','205','207','208','209','215','220','223','230','107','217']
+    ds1_files = ['101','106']
+    #ds2_files = ['100','103','105','111','113','117','121','123','200','202','210','212','213','214','219','221','222','228','231','232','233','234','102','104']
+    ds2_files = ['100','103']
     freq = 360
     preX = v_pre
     postX = v_post
     dfall = {} 
     dfann = {} 
     dfseg = {} 
+    dfseg1 = {}
+    dfseg2 = {}
+    dfseg1_fir = {}
+    dfseg2_fir = {}
+    dfseg1_baseline_values = {}
+    dfseg2_baseline_values = {}
     segment_data = []
     segment_labels = []
     if (ds_num == "1"):
@@ -36,6 +44,18 @@ def create_DS(ds_num, v_pre, v_post):
         dfall[patient_num] = pd.read_csv('../data/DS' + ds_num + '/' + patient_num + '_ALL_samples.csv', sep=',', header=0, squeeze=False)
         dfann[patient_num] = pd.read_csv('../data/DS' + ds_num + '/' + patient_num + '_ALL_ANN.csv', sep=',', header=0, parse_dates=[0], squeeze=False)
    
+
+    # Butterworth filter: x -> y
+    lowcut=0.01
+    highcut=15.0
+    signal_freq=360
+    filter_order=1
+    nyquist_freq = 0.5*signal_freq
+    low=lowcut/nyquist_freq
+    high=highcut/nyquist_freq
+    b, a = signal.butter(filter_order, [low,high], btype="band")
+   
+
     # Standardize the beat annotations 
     # vals_to_replace = {'N':'N','L':'N','e':'N','j':'N','R':'N','A':'SVEB','a':'SVEB','J':'SVEB','S':'SVEB','V':'VEB','E':'VEB','F':'F','Q':'Q','P':'Q','f':'Q','U':'Q'}
     # use integers 0..4 instead of annotation...
@@ -64,8 +84,17 @@ def create_DS(ds_num, v_pre, v_post):
         
         for row in mixNList:
             dfseg = dfall[patient_num][(dfall[patient_num]['sample'] >= row[0]) & (dfall[patient_num]['sample'] <= row[1])]
-            training_inputs1 = np.asarray(dfseg[dfseg.columns[1:2]].values.flatten(), dtype=np.float32)
-            training_inputs2 = np.asarray(dfseg[dfseg.columns[2:3]].values.flatten(), dtype=np.float32)
+            dfseg1 = dfseg[dfseg.columns[1:2]]
+            dfseg2 = dfseg[dfseg.columns[2:3]]
+            if (cleanse == True):
+                dfseg1_fir = signal.lfilter(b, a, dfseg[dfseg.columns[1:2]])
+                dfseg2_fir = signal.lfilter(b, a, dfseg[dfseg.columns[2:3]])
+                dfseg1_baseline_values = peakutils.baseline(dfseg1_fir)
+                dfseg2_baseline_values = peakutils.baseline(dfseg2_fir)
+                dfseg1 = dfseg1_fir-dfseg1_baseline_values
+                dfseg2 = dfseg2_fir-dfseg2_baseline_values
+            training_inputs1 = np.asarray(dfseg1.flatten(), dtype=np.float32)
+            training_inputs2 = np.asarray(dfseg2.flatten(), dtype=np.float32)
             segment_data.append(np.concatenate((training_inputs1, training_inputs2), axis=0))
             training_labels = row[2]
             segment_labels.append(training_labels)    
@@ -229,8 +258,8 @@ def main(unused_argv):
     """
     preX = 19
     postX = 20
-    ds1_all, ds1_ann, ds1_seg, ds1_lab = create_DS("1",preX,postX)
-    ds2_all, ds2_ann, ds2_seg, ds2_lab = create_DS("2",preX,postX)
+    ds1_all, ds1_ann, ds1_seg, ds1_lab = create_DS("1",preX,postX,cleanse=False)
+    ds2_all, ds2_ann, ds2_seg, ds2_lab = create_DS("2",preX,postX,cleanse=False)
     
     train_data = ds1_seg
     train_labels = np.asarray(ds1_lab, dtype=np.int32)
