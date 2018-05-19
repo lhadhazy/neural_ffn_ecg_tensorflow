@@ -61,6 +61,7 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
     
     for patient_num in ds_list:
         annList = [];
+        rriList = [];
         begNList = [];
         endNList = [];
         mixNList = [];
@@ -72,16 +73,33 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
             begNList.append(Nbegin);
             endNList.append(Nend);
             annList.append(row['Type'])
+            rriList.append(row['RRI'])     
+                     
+        for index, row in dfann[patient_num].iterrows():
+            Nbegin = row['sample'] - preX;
+            Nend = row['sample'] + postX;
+            begNList.append(Nbegin);
+            endNList.append(Nend);
+            annList.append(row['Type'])
+            rriList.append(row['RRI'])
 
-        mixNList = tuple(zip(begNList, endNList, annList)) 
+        mixNList = tuple(zip(begNList, endNList, annList, rriList)) 
         
         for row in mixNList:
             dfseg = dfall[patient_num][(dfall[patient_num]['sample'] >= row[0]) & (dfall[patient_num]['sample'] <= row[1])]
+            dfseg1 = dfseg[dfseg.columns[1:2]]
+            dfseg2 = dfseg[dfseg.columns[2:3]]
             if (cleanse == True):
-                dfseg1 = signal.lfilter(b, a, dfseg[dfseg.columns[1:2]])
-                dfseg2 = signal.lfilter(b, a, dfseg[dfseg.columns[2:3]])
-            training_inputs1 = np.asarray(dfseg[dfseg.columns[1:2]].values.flatten(), dtype=np.float32)
-            training_inputs2 = np.asarray(dfseg[dfseg.columns[2:3]].values.flatten(), dtype=np.float32)
+                dfseg1_fir = signal.lfilter(b, a, dfseg[dfseg.columns[1:2]])
+                dfseg2_fir = signal.lfilter(b, a, dfseg[dfseg.columns[2:3]])
+                dfseg1_baseline_values = peakutils.baseline(dfseg1_fir)
+                dfseg2_baseline_values = peakutils.baseline(dfseg2_fir)
+                dfseg1 = dfseg1_fir-dfseg1_baseline_values
+                dfseg2 = dfseg2_fir-dfseg2_baseline_values
+            training_inputs1 = np.asarray(dfseg1.values.flatten(), dtype=np.float32)
+            training_inputs2 = np.asarray(dfseg2.values.flatten(), dtype=np.float32)
+            training_inputs1 = np.concatenate((training_inputs1, np.asarray([row[3]], dtype=np.float32)))
+            training_inputs2 = np.concatenate((training_inputs2, np.asarray([row[3]], dtype=np.float32)))
             segment_data.append(np.concatenate((training_inputs1, training_inputs2), axis=0))
             training_labels = row[2]
             segment_labels.append(training_labels)    

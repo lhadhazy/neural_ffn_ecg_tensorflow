@@ -74,14 +74,34 @@ def create_DS(ds_num, v_pre, v_post, cleanse=False):
         sliceNList = [];
 
         for index, row in dfann[patient_num].iterrows():
+            if (row['Type'] == 1) or (row['Type'] == 3) or (row['Type'] == 4):
+                for i in (1,500):
+                    Nbegin = row['sample'] - preX;
+                    Nend = row['sample'] + postX;
+                    begNList.append(Nbegin);
+                    endNList.append(Nend);
+                    annList.append(row['Type'])
+                    rriList.append(row['RRI'])
+                    mixNList = tuple(zip(begNList, endNList, annList, rriList))
+            if (row['Type'] == 2):
+                for i in (1,5):
+                    Nbegin = row['sample'] - preX;
+                    Nend = row['sample'] + postX;
+                    begNList.append(Nbegin);
+                    endNList.append(Nend);
+                    annList.append(row['Type'])
+                    rriList.append(row['RRI'])
+                    mixNList = tuple(zip(begNList, endNList, annList, rriList))
+        
             Nbegin = row['sample'] - preX;
             Nend = row['sample'] + postX;
             begNList.append(Nbegin);
             endNList.append(Nend);
             annList.append(row['Type'])
-            rriList.append(row['RRI'])
+            rriList.append(row['RRI'])     
+                     
 
-        mixNList = tuple(zip(begNList, endNList, annList, rriList)) 
+        mixNList = tuple(zip(begNList, endNList, annList, rriList))
         
         for row in mixNList:
             dfseg = dfall[patient_num][(dfall[patient_num]['sample'] >= row[0]) & (dfall[patient_num]['sample'] <= row[1])]
@@ -275,11 +295,12 @@ def cnn_model_fn2_rri(features, labels, mode):
     eval_labels = tf.placeholder('int32')
     y = tf.placeholder('int32')
 
+    # print(np.unique(train_labels, return_counts=True))
+    # print(np.unique(eval_labels, return_counts=True))
+
     input_layer = tf.reshape(features["x"], [-1, 1, 482, 1])
 
     # Convolutional Layer #1
-    # Computes 32 features using a 5x5 filter with ReLU activation.
-    # Padding is added to preserve width and height.
     # Input Tensor Shape: [batch_size, 1, 482, 1]
     # Output Tensor Shape: [batch_size, 1, 478, 5]
     conv1 = tf.layers.conv2d(
@@ -290,21 +311,13 @@ def cnn_model_fn2_rri(features, labels, mode):
         padding='valid',
         activation=tf.nn.leaky_relu)
 
-    # print("conv1: ")
-    # print(conv1.shape)
  
     # Pooling Layer #1
-    # First max pooling layer with a 2x2 filter and stride of 2
     # Input Tensor Shape: [batch_size, 1, 478, 5]
     # Output Tensor Shape: [batch_size, 1, 239, 5]
     pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[1, 2], strides=2)
 
-    # print("pool1: ")
-    # print(pool1.shape)
-    
     # Convolutional Layer #2
-    # Computes 64 features using a 5x5 filter.
-    # Padding is added to preserve width and height.
     # Input Tensor Shape: [batch_size, 1, 239, 5]
     # Output Tensor Shape: [batch_size, 1, 236, 10]
     conv2 = tf.layers.conv2d(
@@ -315,18 +328,13 @@ def cnn_model_fn2_rri(features, labels, mode):
         # padding="same",
         activation=tf.nn.leaky_relu)
 
-    # print("conv2: ")
-    # print(conv2.shape)
     # Pooling Layer #2
-    # Second max pooling layer with a 2x2 filter and stride of 2
     # Input Tensor Shape: [batch_size, 1, 236, 10]
     # Output Tensor Shape: [batch_size, 1, 118, 10]
 
     pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[1, 2], strides=2)
 
   # Convolutional Layer #3
-    # Computes 32 features using a 5x5 filter with ReLU activation.
-    # Padding is added to preserve width and height.
     # Input Tensor Shape: [batch_size, 1, 118, 10]
     # Output Tensor Shape: [batch_size, 1, 116, 20]
     conv3 = tf.layers.conv2d(
@@ -337,48 +345,34 @@ def cnn_model_fn2_rri(features, labels, mode):
         padding='valid',
         activation=tf.nn.leaky_relu)
 
-    # print("conv1: ")
-    # print(conv1.shape)
  
     # Pooling Layer #1
-    # First max pooling layer with a 2x2 filter and stride of 2
     # Input Tensor Shape: [batch_size, 1, 116, 20]
     # Output Tensor Shape: [batch_size, 1, 58, 20]
     pool3 = tf.layers.max_pooling2d(inputs=conv3, pool_size=[1, 2], strides=2)
     
-    # print("pool2: ")
-    # print(pool2.shape)
     # Flatten tensor into a batch of vectors
     # Input Tensor Shape: [batch_size, 1, 58, 20]
     # Output Tensor Shape: [batch_size, 1, 58, 20]
     pool3_flat = tf.reshape(pool3, [-1, 1 * 58 * 20])
 
-    # print("pool2_flat: ")
-    # print(pool2_flat.shape)
     # Dense Layer
     # Densely connected layer with 1024 neurons
     # Input Tensor Shape: [batch_size, 7 * 7 * 64]
     # Output Tensor Shape: [batch_size, 1024]
     dense1 = tf.layers.dense(inputs=pool3_flat, units=30, activation=tf.nn.leaky_relu)
 
-    # print("dense: ")
-    # print(dense.shape)
     dense2 = tf.layers.dense(inputs=dense1, units=20, activation=tf.nn.leaky_relu)
     
     # Add dropout operation; 0.7 probability that element will be kept
     dropout = tf.layers.dropout(
         inputs=dense2, rate=0.3, training=mode == tf.estimator.ModeKeys.TRAIN)
 
-    # print("dropout: ")
-    # print(dropout.shape)
     
     # Logits layer
     # Input Tensor Shape: [batch_size, 1024]
     # Output Tensor Shape: [batch_size, 10]
     logits = tf.layers.dense(inputs=dropout, units=5)
-    
-    # print("logits: ")
-    # print(logits.shape)
 
     predictions = {
         # Generate predictions (for PREDICT and EVAL mode)
@@ -435,8 +429,8 @@ def main(unused_argv):
     eval_data = ds2_seg
     eval_labels = np.array(ds2_lab, dtype=np.int32)
 
-    # print(np.unique(train_labels, return_counts=True))
-    # print(np.unique(eval_labels, return_counts=True))
+    #print(np.unique(train_labels, return_counts=True))
+    #print(np.unique(eval_labels, return_counts=True))
 
      # Create the Estimator
     ecg_classifier = tf.estimator.Estimator(model_fn=cnn_model_fn2_rri, model_dir="/tmp/ecg_convnet_model2_rri")
